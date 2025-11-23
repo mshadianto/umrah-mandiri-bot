@@ -362,19 +362,24 @@ async def log_requests(request, call_next):
 
 if __name__ == "__main__":
     import uvicorn
+    import os
     
     print("\n" + "=" * 80)
     print("🕌 UMRAH ASSISTANT API v3.0")
     print("=" * 80)
     print("Starting development server...")
-    print("API will be available at: http://localhost:8000")
-    print("API Documentation: http://localhost:8000/docs")
+    
+    # Get PORT from environment variable (Railway provides this)
+    port = int(os.getenv("PORT", 8000))
+    
+    print(f"API will be available at: http://0.0.0.0:{port}")
+    print(f"API Documentation: http://0.0.0.0:{port}/docs")
     print("=" * 80 + "\n")
     
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,  # ← DYNAMIC PORT
         reload=True,
         log_level="info"
     )
