@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Umrah Assistant API
-Main application entry point - Enhanced Version
+Main application entry point - Enhanced Version with Budget Optimizer
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,13 +30,14 @@ app = FastAPI(
     - 🤖 RAG-based AI Chat
     - 🕌 Real-time Prayer Times
     - 🗺️ Navigation & Location Services
+    - 💰 AI Budget Optimizer (NEW!)
     - 🆘 Emergency Assistance
     - 📊 Progress Tracking
     - 💡 Smart Tips & Recommendations
     
     Powered by Multi-Agent AI System with Islamic Knowledge Base
     """,
-    version="2.0.0",
+    version="3.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -60,12 +61,13 @@ async def root():
     Root endpoint - API information
     """
     return {
-        "message": "Umrah Assistant API v2.0",
+        "message": "Umrah Assistant API v3.0 - Now with AI Budget Optimizer!",
         "status": "running",
         "features": [
             "AI Chat with RAG",
             "Real-time Prayer Times",
             "Navigation Services",
+            "AI Budget Optimizer (NEW!)",
             "Emergency Assistance",
             "Progress Tracking",
             "Multilingual Support"
@@ -85,10 +87,11 @@ async def health():
     return {
         "status": "healthy",
         "service": "umrah-assistant-api",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "components": {
             "api": "operational",
             "agents": "operational",
+            "budget_optimizer": "operational",
             "database": "pending",  # Will be "operational" when DB is connected
             "rag": "pending"  # Will be "operational" when RAG is ready
         }
@@ -142,6 +145,18 @@ async def features():
                 "endpoint": "/api/v1/advanced/tips",
                 "description": "Quick tips & recommendations",
                 "status": "available"
+            },
+            "budget_optimizer": {
+                "endpoint": "/api/v1/budget/optimize",
+                "description": "AI-powered budget optimization with RAG - Analyzes 50+ hotels and finds optimal packages",
+                "status": "available",
+                "new": True
+            },
+            "knowledge_base": {
+                "endpoint": "/api/v1/budget/knowledge-base",
+                "description": "Access hotel and price knowledge base",
+                "status": "available",
+                "new": True
             }
         }
     }
@@ -196,6 +211,16 @@ try:
         failed_routers.append(("advanced", str(e)))
         logger.warning(f"✗ Advanced router not available: {e}")
     
+    # Budget optimizer router (NEW!)
+    try:
+        from api.routes.budget_routes import router as budget_router
+        app.include_router(budget_router, tags=["Budget Optimizer"])
+        loaded_routers.append("budget")
+        logger.info("✓ Budget router loaded")
+    except ImportError as e:
+        failed_routers.append(("budget", str(e)))
+        logger.warning(f"✗ Budget router not available: {e}")
+    
     # Summary
     if loaded_routers:
         logger.info(f"Successfully loaded {len(loaded_routers)} routers: {', '.join(loaded_routers)}")
@@ -221,7 +246,7 @@ async def startup_event():
     Run on startup
     """
     logger.info("=" * 80)
-    logger.info("🕌 UMRAH ASSISTANT API v2.0 - STARTING")
+    logger.info("🕌 UMRAH ASSISTANT API v3.0 - STARTING")
     logger.info("=" * 80)
     logger.info("")
     logger.info("📊 System Status:")
@@ -339,7 +364,7 @@ if __name__ == "__main__":
     import uvicorn
     
     print("\n" + "=" * 80)
-    print("🕌 UMRAH ASSISTANT API")
+    print("🕌 UMRAH ASSISTANT API v3.0")
     print("=" * 80)
     print("Starting development server...")
     print("API will be available at: http://localhost:8000")
