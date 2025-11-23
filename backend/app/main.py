@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 import sys
+import os
 
 # Setup logging
 logging.basicConfig(
@@ -171,6 +172,7 @@ failed_routers = []
 
 # Import and register routers
 try:
+    logger.info("🚀 Umrah Mandiri API v3.0.0")
     logger.info("Loading API routers...")
     
     # Core routers
@@ -213,7 +215,7 @@ try:
     
     # Budget optimizer router (NEW!)
     try:
-        from api.routes.budget_routes import router as budget_router
+        from app.api.routes.budget_routes import router as budget_router
         app.include_router(budget_router, tags=["Budget Optimizer"])
         loaded_routers.append("budget")
         logger.info("✓ Budget router loaded")
@@ -222,8 +224,7 @@ try:
         logger.warning(f"✗ Budget router not available: {e}")
     
     # Summary
-    if loaded_routers:
-        logger.info(f"Successfully loaded {len(loaded_routers)} routers: {', '.join(loaded_routers)}")
+    logger.info(f"✓ Routers: {len(loaded_routers)} loaded")
     
     if failed_routers:
         logger.warning(f"Failed to load {len(failed_routers)} routers")
@@ -255,11 +256,11 @@ async def startup_event():
     logger.info(f"  ✓ Routers: {len(loaded_routers)} loaded")
     logger.info("")
     logger.info("🔗 Endpoints:")
-    logger.info("  • API Root: http://localhost:8000/")
-    logger.info("  • API Docs: http://localhost:8000/docs")
-    logger.info("  • ReDoc: http://localhost:8000/redoc")
-    logger.info("  • Health Check: http://localhost:8000/health")
-    logger.info("  • Features List: http://localhost:8000/features")
+    logger.info("  • API Root: /")
+    logger.info("  • API Docs: /docs")
+    logger.info("  • ReDoc: /redoc")
+    logger.info("  • Health Check: /health")
+    logger.info("  • Features List: /features")
     logger.info("")
     logger.info("🤖 Available Features:")
     for router in loaded_routers:
@@ -362,24 +363,22 @@ async def log_requests(request, call_next):
 
 if __name__ == "__main__":
     import uvicorn
-    import os
+    
+    # Get PORT from Railway environment variable
+    port = int(os.getenv("PORT", 8000))
     
     print("\n" + "=" * 80)
     print("🕌 UMRAH ASSISTANT API v3.0")
     print("=" * 80)
-    print("Starting development server...")
-    
-    # Get PORT from environment variable (Railway provides this)
-    port = int(os.getenv("PORT", 8000))
-    
-    print(f"API will be available at: http://0.0.0.0:{port}")
+    print("Starting server...")
+    print(f"Port: {port}")
     print(f"API Documentation: http://0.0.0.0:{port}/docs")
     print("=" * 80 + "\n")
     
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=port,  # ← DYNAMIC PORT
+        port=port,
         reload=True,
         log_level="info"
     )
