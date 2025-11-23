@@ -6,5 +6,5 @@ startCommand = "python bot.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 
-[env]
-PYTHON_VERSION = "3.11"
+[build.watchPatterns]
+include = ["telegram-bot/**"]
