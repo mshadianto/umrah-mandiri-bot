@@ -1,10 +1,3 @@
-### **File 2: `telegram-bot/bot.py`**
-**Path:** `telegram-bot/bot.py`  
-**Action:** Replace - Remove duplicate budget handling
-
-<details>
-<summary>Click to expand - bot.py (FIXED)</summary>
-```python
 # -*- coding: utf-8 -*-
 """Umrah Assistant Bot - Clean Version"""
 import logging
