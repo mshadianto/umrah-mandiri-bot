@@ -8,7 +8,8 @@ from telegram.ext import (
     ContextTypes, 
     ConversationHandler, 
     CallbackQueryHandler,
-    CommandHandler
+    MessageHandler,
+    filters
 )
 from telegram.constants import ChatAction
 
@@ -17,12 +18,12 @@ CHOOSING_JAMAAH, CHOOSING_DURATION, CHOOSING_HOTEL, SHOWING_RESULT = range(4)
 
 # Harga base (dalam IDR)
 PRICES = {
-    "visa": 2500000,  # Per orang
-    "flight_jakarta_jeddah": 8500000,  # PP per orang
-    "transport_local_per_day": 150000,  # Per hari per orang
-    "meal_per_day": 200000,  # Per hari per orang
+    "visa": 2500000,
+    "flight_jakarta_jeddah": 8500000,
+    "transport_local_per_day": 150000,
+    "meal_per_day": 200000,
     "hotel_makkah": {
-        "bintang_3": 500000,  # Per malam
+        "bintang_3": 500000,
         "bintang_4": 1000000,
         "bintang_5": 2000000
     },
@@ -31,18 +32,19 @@ PRICES = {
         "bintang_4": 800000,
         "bintang_5": 1500000
     },
-    "lain_lain": 1000000  # Misc per orang
+    "lain_lain": 1000000
 }
 
 async def budget_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start budget calculation"""
-    # Handle both command and button press
+    # Get message object
     if update.message:
-        chat = update.message.chat
         message = update.message
+        chat = message.chat
     elif update.callback_query:
-        chat = update.callback_query.message.chat
+        await update.callback_query.answer()
         message = update.callback_query.message
+        chat = message.chat
     else:
         return ConversationHandler.END
     
@@ -63,8 +65,7 @@ async def budget_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     if update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text(
+        await message.edit_text(
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -227,9 +228,7 @@ Rp {misc_total:,.0f}
 - Harga estimasi, bisa berubah
 - Sudah termasuk hotel & makan
 - Belum termasuk belanja pribadi
-- Harga tiket tergantung musim
-
-📲 Hubungi travel agent untuk paket lengkap!"""
+- Harga tiket tergantung musim"""
     
     keyboard = [
         [InlineKeyboardButton("🔄 Hitung Ulang", callback_data="budget_restart")],
@@ -243,7 +242,6 @@ Rp {misc_total:,.0f}
         parse_mode="Markdown"
     )
     
-    # Save to user data for reference
     context.user_data['last_budget'] = {
         'jamaah': jamaah,
         'duration': duration,
@@ -281,12 +279,11 @@ async def budget_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return ConversationHandler.END
 
-# Export conversation handler
 def get_budget_handler():
     """Get the budget conversation handler"""
     return ConversationHandler(
         entry_points=[
-            CommandHandler('budget', budget_start)
+            MessageHandler(filters.Regex("^💰 Budget$"), budget_start)
         ],
         states={
             CHOOSING_JAMAAH: [
@@ -309,5 +306,8 @@ def get_budget_handler():
             CallbackQueryHandler(budget_cancel, pattern="^budget_cancel$")
         ],
         name="budget_conversation",
-        persistent=False
+        persistent=False,
+        per_message=True,
+        per_chat=True,
+        per_user=False
     )
