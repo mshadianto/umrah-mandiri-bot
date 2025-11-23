@@ -1,66 +1,63 @@
-# -*- coding: utf-8 -*-
 """
-Budget API Routes with RAG Agent
+Budget optimization routes for Umrah Assistant API
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict
-from app.agents.budget_agent import budget_agent
+from typing import Optional, List
 
-router = APIRouter(prefix="/api/v1/budget", tags=["budget"])
+from app.agents.budget_agent import budget_agent, KNOWLEDGE_BASE
+
+router = APIRouter(prefix="/budget", tags=["Budget"])
+
 
 class BudgetRequest(BaseModel):
-    jamaah: int
-    duration: int
-    budget_max: Optional[int] = None
-    preferences: Optional[Dict] = None
+    """Request model for budget optimization"""
+    jamaah_count: int
+    duration_days: int
+    budget_max: int
+    preferences: Optional[dict] = None
+
+
+class PackageRecommendation(BaseModel):
+    """Single package recommendation"""
+    name: str
+    total_price: int
+    price_per_person: int
+    hotel_makkah: str
+    hotel_madinah: str
+    airline: str
+    breakdown: dict
+
 
 class BudgetResponse(BaseModel):
+    """Response model for budget optimization"""
     status: str
-    data: Dict
+    packages: List[PackageRecommendation]
+
 
 @router.post("/optimize", response_model=BudgetResponse)
 async def optimize_budget(request: BudgetRequest):
     """
-    Get AI-powered budget recommendations
+    Optimize budget and return 3 package recommendations using AI
     """
     try:
-        recommendations = await budget_agent.analyze_and_recommend(
-            jamaah=request.jamaah,
-            duration=request.duration,
+        result = await budget_agent.optimize_budget(
+            jamaah_count=request.jamaah_count,
+            duration=request.duration_days,
             budget_max=request.budget_max,
-            preferences=request.preferences
+            preferences=request.preferences or {}
         )
-        
-        return BudgetResponse(
-            status="success",
-            data=recommendations
-        )
-        
+        return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Budget optimization failed: {str(e)}")
+
 
 @router.get("/knowledge-base")
 async def get_knowledge_base():
-    """Get available hotels and prices"""
-    from app.agents.budget_agent import KNOWLEDGE_BASE
+    """
+    Get the knowledge base for budget optimization
+    """
     return {
         "status": "success",
-        "data": KNOWLEDGE_BASE
+        "knowledge_base": KNOWLEDGE_BASE
     }
-```
-
----
-
-## ✅ **Verification After Fix:**
-
-Expected logs setelah fix dan redeploy:
-```
-✓ Users router loaded
-✓ Umrah router loaded
-✓ Chat router loaded
-✓ Advanced router loaded
-✓ Budget router loaded  ← HARUS MUNCUL!
-
-Successfully loaded 5 routers: users, umrah, chat, advanced, budget
-✅ API is ready to accept requests!
