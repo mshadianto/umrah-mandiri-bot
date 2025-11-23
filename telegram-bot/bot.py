@@ -1,9 +1,10 @@
+# -*- coding: utf-8 -*-
 """Umrah Assistant Bot - Clean Version"""
 import logging
 import sys
 from datetime import datetime
 import httpx
-from telegram import Update, BotCommand
+from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
@@ -129,8 +130,9 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     
     elif text == "💰 Budget":
-        # Trigger budget calculator
+        # Trigger budget calculator using command simulation
         await budget_start(update, context)
+        return  # Important: stop here to let ConversationHandler take over
     
     elif text == "🆘 Emergency":
         keyboard = [
@@ -147,8 +149,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     
     elif text == "📚 Tips":
-        tips = """
-📚 *Tips Umrah Mandiri*
+        tips = """📚 *Tips Umrah Mandiri*
 
 ✅ *Sebelum Berangkat:*
 - Cek syarat visa umrah
@@ -167,8 +168,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 - Jalan kaki kalau dekat
 - Beli oleh-oleh di pasar
 
-Ketik /tips untuk tips lengkap!
-"""
+Ketik /tips untuk tips lengkap!"""
         await update.message.reply_text(tips, parse_mode="Markdown")
     
     elif text == "⚙️ Settings":
@@ -223,16 +223,16 @@ def main():
         # Create application
         app = Application.builder().token(BOT_TOKEN).build()
         
-        # Add handlers
+        # IMPORTANT: Add budget conversation handler FIRST
+        # This ensures it has priority over other handlers
+        app.add_handler(get_budget_handler())
+        
+        # Add command handlers
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("menu", menu_command))
         app.add_handler(CommandHandler("sholat", sholat_command))
-        app.add_handler(CommandHandler("budget", budget_start))
         
-        # Add budget conversation handler
-        app.add_handler(get_budget_handler())
-        
-        # Add message handlers
+        # Add message and callback handlers
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
         app.add_handler(CallbackQueryHandler(button_callback))
         
