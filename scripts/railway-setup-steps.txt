@@ -1,0 +1,167 @@
+╔══════════════════════════════════════════════════════════════╗
+║     RAILWAY DEPLOYMENT - STEP BY STEP GUIDE                 ║
+╚══════════════════════════════════════════════════════════════╝
+
+��� PHASE 1: CREATE PROJECT
+═══════════════════════════════════════════════════════════════
+
+1. Open: https://railway.app
+2. Click: "New Project"
+3. Select: "Deploy from GitHub repo"
+4. Choose: mshadianto/umrah-mandiri-bot
+5. ⚠️ WAIT - Don't click Deploy yet!
+
+
+��� PHASE 2: DEPLOY BACKEND SERVICE
+═══════════════════════════════════════════════════════════════
+
+1. Service Name: "backend" (or leave default)
+
+2. ROOT DIRECTORY (CRITICAL!):
+   Settings → Source → Root Directory
+   Type: backend
+   Save ✅
+
+3. ENVIRONMENT VARIABLES:
+   Variables tab → Add Variables:
+   
+   Name: GROQ_API_KEY
+   Value: [paste your Groq API key]
+   
+   Click "Add" ✅
+
+4. DEPLOY:
+   Click "Deploy" button
+   Wait 2-3 minutes... ⏱️
+
+5. GET BACKEND URL:
+   Settings → Domains
+   Copy URL: https://backend-production-xxxx.up.railway.app
+   
+   ��� SAVE THIS URL! You'll need it for bot!
+
+
+��� PHASE 3: DEPLOY BOT SERVICE
+═══════════════════════════════════════════════════════════════
+
+1. Same project → "+ New Service"
+
+2. Select: "Deploy from GitHub repo"
+
+3. Choose: mshadianto/umrah-mandiri-bot (same repo)
+
+4. Service Name: "telegram-bot"
+
+5. ROOT DIRECTORY (CRITICAL!):
+   Settings → Source → Root Directory
+   Type: telegram-bot
+   Save ✅
+
+6. ENVIRONMENT VARIABLES:
+   Variables tab → Add Variables:
+   
+   Name: TELEGRAM_BOT_TOKEN
+   Value: [your bot token from @BotFather]
+   
+   Name: API_URL
+   Value: [backend URL from Phase 2, step 5]
+   
+   Name: GROQ_API_KEY
+   Value: [same Groq key]
+   
+   Click "Add" for each ✅
+
+7. DEPLOY:
+   Click "Deploy" button
+   Wait 2-3 minutes... ⏱️
+
+
+��� PHASE 4: VERIFICATION
+═══════════════════════════════════════════════════════════════
+
+BACKEND CHECK:
+1. Copy backend URL
+2. Open in browser: https://your-backend.railway.app/health
+3. Should see: {"status":"healthy"}
+   ✅ If yes → Backend working!
+   ❌ If no → Check logs in Railway
+
+BOT CHECK:
+1. Open Telegram
+2. Find your bot
+3. Send: /start
+4. Should get welcome message
+   ✅ If yes → Bot working!
+   ❌ If no → Check logs in Railway
+
+BOTH WORKING? ��� CONGRATS! YOU'RE LIVE!
+
+
+��� PHASE 5: MONITORING (OPTIONAL)
+═══════════════════════════════════════════════════════════════
+
+VIEW LOGS:
+- Railway Dashboard → Service → Deployments → View logs
+
+RESTART SERVICE:
+- Service → Settings → Restart
+
+UPDATE CODE:
+1. Make changes locally
+2. git push origin main
+3. Railway auto-deploys! ✅
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  ��� COST ESTIMATE                                            ║
+╚══════════════════════════════════════════════════════════════╝
+
+Month 1: FREE ($5 credit)
+Month 2+: ~$5-10/month total
+
+Cancel anytime - no commitments!
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  ��� TROUBLESHOOTING                                          ║
+╚══════════════════════════════════════════════════════════════╝
+
+ERROR: "Module not found"
+FIX: Check requirements.txt has all dependencies
+
+ERROR: "Port binding failed"  
+FIX: Railway auto-sets PORT, don't override
+
+ERROR: Bot not responding
+FIX: 
+  1. Check bot logs in Railway
+  2. Verify API_URL is correct
+  3. Test backend: curl [backend-url]/health
+
+ERROR: "Build failed"
+FIX:
+  1. Verify Root Directory is set correctly
+  2. Check railway.toml exists in folder
+  3. View build logs for specific error
+
+
+═══════════════════════════════════════════════════════════════
+              NEED HELP? Common Issues & Fixes
+═══════════════════════════════════════════════════════════════
+
+Q: Backend builds but health check fails
+A: Check GROQ_API_KEY is set in Variables
+
+Q: Bot builds but doesn't respond  
+A: Verify API_URL matches backend URL exactly
+
+Q: Both services failing
+A: Check if Root Directories are set correctly
+
+Q: Deployment taking too long
+A: Normal for first deploy (3-5 min), be patient
+
+Q: How to see what bot is doing?
+A: Service → Deployments → View logs → See real-time output
+
+═══════════════════════════════════════════════════════════════
