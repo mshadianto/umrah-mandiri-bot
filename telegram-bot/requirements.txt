@@ -1,24 +1,5 @@
-# Core Telegram
-python-telegram-bot==20.7
+python-telegram-bot==21.0
+httpx==0.26.0
 python-dotenv==1.0.0
-
-# HTTP Client
-httpx==0.25.2
-aiohttp==3.9.1
-
-# Utilities
 loguru==0.7.2
-pydantic==2.5.3
-pytz==2024.1
-
-# Image Processing (for photo recognition)
-pillow==10.3.0
-
-# File handling
-aiofiles==23.2.1
-
-# Scheduling
-apscheduler==3.10.4
-
-# Data storage (for user preferences)
 tinydb==4.8.0
