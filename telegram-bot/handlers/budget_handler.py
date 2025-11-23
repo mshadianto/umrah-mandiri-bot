@@ -306,8 +306,5 @@ def get_budget_handler():
             CallbackQueryHandler(budget_cancel, pattern="^budget_cancel$")
         ],
         name="budget_conversation",
-        persistent=False,
-        per_message=True,
-        per_chat=True,
-        per_user=False
+        persistent=False 
     )
