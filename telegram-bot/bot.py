@@ -1,7 +1,3 @@
-</details>
-
----
-
 ### **File 2: `telegram-bot/bot.py`**
 **Path:** `telegram-bot/bot.py`  
 **Action:** Replace - Remove duplicate budget handling
