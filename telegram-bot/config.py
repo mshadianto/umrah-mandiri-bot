@@ -10,7 +10,7 @@ load_dotenv()
 
 # Bot Configuration
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-API_URL = os.getenv('API_URL', 'http://localhost:8000')
+API_URL = os.getenv('BACKEND_URL', 'https://umrah-mandiri-bot-production.up.railway.app')
 
 # Feature Flags
 FEATURES = {
