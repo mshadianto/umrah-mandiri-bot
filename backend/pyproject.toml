@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "umrah-assistant-backend"
+version = "0.1.0"
+description = "Backend API for Umrah Assistant"
+authors = ["Your Name <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

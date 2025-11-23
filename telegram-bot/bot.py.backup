@@ -1,0 +1,811 @@
+# -*- coding: utf-8 -*-
+"""
+Umrah Assistant Telegram Bot v3.0
+Super Advanced with Full Features
+"""
+import logging
+import sys
+import asyncio
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional
+
+import httpx
+import pytz
+from telegram import Update, BotCommand
+from telegram.constants import ChatAction, ParseMode
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    filters,
+    ContextTypes
+)
+from telegram.request import HTTPXRequest
+from telegram.error import TelegramError
+
+# Local imports
+from config import BOT_TOKEN, API_URL, FEATURES, LANGUAGES
+from user_manager import user_manager
+from keyboards import *
+
+# ============================================================================
+# LOGGING SETUP
+# ============================================================================
+
+from loguru import logger
+
+logger.remove()
+logger.add(
+    sys.stdout,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+    level="INFO"
+)
+logger.add(
+    "bot.log",
+    rotation="1 day",
+    retention="7 days",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function} - {message}",
+    level="DEBUG"
+)
+
+# ============================================================================
+# CONVERSATION STATES
+# ============================================================================
+
+WAITING_FOR_LOCATION = 1
+WAITING_FOR_QUESTION = 2
+
+# ============================================================================
+# API CALLER (Enhanced)
+# ============================================================================
+
+class APIClient:
+    """Enhanced API client with retry and error handling"""
+    
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+        self.timeout = 30.0
+    
+    async def call(self, endpoint: str, method: str = "POST", data: Dict = None) -> Optional[Dict]:
+        """Make API call with retry logic"""
+        url = f"{self.base_url}{endpoint}"
+        
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    if method == "POST":
+                        response = await client.post(url, json=data)
+                    else:
+                        response = await client.get(url, params=data)
+                    
+                    if response.status_code == 200:
+                        return response.json()
+                    else:
+                        logger.warning(f"API returned {response.status_code}")
+                        
+            except httpx.TimeoutException:
+                logger.warning(f"API timeout (attempt {attempt + 1}/3)")
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"API error: {e}")
+                break
+        
+        return None
+    
+    async def chat(self, message: str, user_id: int) -> Optional[Dict]:
+        """Send chat message to AI"""
+        return await self.call("/api/v1/chat/message", "POST", {
+            "message": message,
+            "user_id": str(user_id)
+        })
+    
+    async def prayer_times(self, location: str = "Makkah") -> Optional[Dict]:
+        """Get prayer times"""
+        return await self.call("/api/v1/advanced/prayer-times", "POST", {
+            "location": location
+        })
+    
+    async def navigation(self, query: str) -> Optional[Dict]:
+        """Get navigation info"""
+        return await self.call("/api/v1/advanced/navigation", "POST", {
+            "query": query
+        })
+    
+    async def emergency(self, query: str, emerg_type: str = "general") -> Optional[Dict]:
+        """Get emergency assistance"""
+        return await self.call("/api/v1/advanced/emergency", "POST", {
+            "query": query,
+            "type": emerg_type
+        })
+    
+    async def tips(self, category: str) -> Optional[Dict]:
+        """Get tips for category"""
+        return await self.call(f"/api/v1/advanced/tips/{category}", "GET")
+
+api = APIClient(API_URL)
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def format_progress_bar(percentage: int) -> str:
+    """Create visual progress bar"""
+    filled = int(percentage / 10)
+    empty = 10 - filled
+    return f"[{'█' * filled}{'░' * empty}] {percentage}%"
+
+async def send_typing(update: Update):
+    """Show typing indicator"""
+    if update.message:
+        await update.message.chat.send_action(ChatAction.TYPING)
+    elif update.callback_query:
+        await update.callback_query.message.chat.send_action(ChatAction.TYPING)
+
+def get_user_info(update: Update) -> Dict[str, Any]:
+    """Extract user information from update"""
+    user = update.effective_user
+    return {
+        "user_id": user.id,
+        "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "language_code": user.language_code
+    }
+
+# ============================================================================
+# COMMAND HANDLERS
+# ============================================================================
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enhanced /start command with interactive menu"""
+    user = update.effective_user
+    user_id = user.id
+    
+    # Save user info
+    user_manager.create_or_update_user(user_id, {
+        'username': user.username,
+        'first_name': user.first_name,
+        'language_code': user.language_code
+    })
+    
+    welcome_text = f"""
+🕌 *Assalamu'alaikum {user.first_name}!*
+
+Selamat datang di *Umrah Assistant Bot v3.0* 🤖
+
+Saya adalah asisten AI super canggih yang siap membantu perjalanan umrah Anda dengan fitur:
+
+✨ *Fitur Unggulan:*
+- 🤖 AI Chat dengan RAG
+- 🕌 Jadwal Sholat Real-time
+- 🗺️ Navigasi & Lokasi
+- 🆘 Bantuan Darurat 24/7
+- 📊 Tracking Progress Umrah
+- 🤲 Doa & Dzikir Lengkap
+- 🌍 Multilingual (ID/EN/AR)
+- 📍 Location Sharing
+- 🔔 Reminder Otomatis
+
+*Pilih menu di bawah atau langsung tanya apa saja!*
+
+Contoh:
+- "Jadwal sholat hari ini"
+- "Cara ke Jabal Rahmah"
+- "Doa ketika thawaf"
+
+Semoga Allah mudahkan ibadah Anda! 🕋
+    """
+    
+    await update.message.reply_text(
+        welcome_text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=main_menu_keyboard()
+    )
+    
+    logger.info(f"User {user_id} ({user.username}) started bot")
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Help command"""
+    help_text = """
+📖 *Panduan Lengkap Umrah Assistant Bot*
+
+*🎯 Cara Menggunakan:*
+
+1️⃣ *Menu Interaktif*
+   Gunakan tombol menu untuk akses cepat
+
+2️⃣ *Chat Langsung*
+   Tanya apa saja, AI akan menjawab
+
+3️⃣ *Command*
+   • /start - Mulai & menu utama
+   • /menu - Tampilkan menu
+   • /sholat - Jadwal sholat
+   • /progress - Lihat progress
+   • /emergency - Bantuan darurat
+   • /tips - Tips harian
+   • /settings - Pengaturan
+
+*💡 Tips Bertanya:*
+✅ "Jelaskan cara thawaf dengan detail"
+✅ "Hotel murah dekat Haram"
+✅ "Apa yang harus dilakukan jika hilang paspor?"
+
+*🔧 Fitur Advanced:*
+- Share location untuk info spesifik
+- Upload foto untuk identifikasi lokasi
+- Set reminder jadwal sholat
+- Track progress umrah otomatis
+
+Butuh bantuan? Ketik /support
+    """
+    
+    await update.message.reply_text(
+        help_text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=main_menu_keyboard()
+    )
+
+async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show main menu"""
+    await update.message.reply_text(
+        "📱 *Menu Utama*\n\nPilih fitur yang ingin Anda gunakan:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=main_menu_keyboard()
+    )
+
+async def sholat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Quick prayer times"""
+    await send_typing(update)
+    
+    user_id = update.effective_user.id
+    location = user_manager.get_user_location(user_id) or "Makkah"
+    
+    result = await api.prayer_times(location)
+    
+    if result and result.get("response"):
+        await update.message.reply_text(
+            result["response"],
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await update.message.reply_text(
+            "⚠️ Tidak dapat mengambil jadwal sholat. Coba lagi nanti."
+        )
+
+async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user progress"""
+    user_id = update.effective_user.id
+    progress = user_manager.get_progress(user_id)
+    percentage = user_manager.get_progress_percentage(user_id)
+    
+    steps = {
+        'ihram': '🧺 Ihram',
+        'thawaf': '🕋 Thawaf',
+        'sai': '🏃 Sa\'i',
+        'tahalul': '✂️ Tahalul'
+    }
+    
+    progress_text = f"""
+📊 *Progress Umrah Anda*
+
+{format_progress_bar(percentage)}
+
+*Status:*
+"""
+    
+    for key, name in steps.items():
+        status = progress.get(key, {})
+        if status.get('completed'):
+            timestamp = status.get('timestamp', '')
+            progress_text += f"✅ {name} - Selesai\n"
+        else:
+            progress_text += f"⬜ {name} - Belum selesai\n"
+    
+    if percentage < 100:
+        progress_text += f"\n💪 Semangat! Anda sudah {percentage}% selesai!"
+    else:
+        progress_text += "\n🎉 Alhamdulillah! Umrah Anda sudah lengkap!"
+    
+    await update.message.reply_text(
+        progress_text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=progress_keyboard()
+    )
+
+async def emergency_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Quick emergency access"""
+    await update.message.reply_text(
+        "🆘 *Menu Darurat*\n\nPilih jenis bantuan yang Anda butuhkan:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=emergency_keyboard()
+    )
+
+# ============================================================================
+# CALLBACK QUERY HANDLER (For Inline Buttons)
+# ============================================================================
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle all button callbacks"""
+    query = update.callback_query
+    await query.answer()
+    
+    callback_data = query.data
+    user_id = update.effective_user.id
+    
+    logger.info(f"Button pressed: {callback_data} by user {user_id}")
+    
+    # Show typing
+    await query.message.chat.send_action(ChatAction.TYPING)
+    
+    # ========================================================================
+    # MAIN MENU BUTTONS
+    # ========================================================================
+    
+    if callback_data == "prayer_times":
+        location = user_manager.get_user_location(user_id) or "Makkah"
+        result = await api.prayer_times(location)
+        
+        if result:
+            await query.edit_message_text(
+                result["response"],
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=back_button()
+            )
+    
+    elif callback_data == "guide":
+        await query.edit_message_text(
+            "📚 *Panduan Manasik Umrah*\n\nPilih topik yang ingin Anda pelajari:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=manasik_keyboard()
+        )
+    
+    elif callback_data == "doa":
+        await query.edit_message_text(
+            "🤲 *Doa & Dzikir Umrah*\n\nPilih kategori doa:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=doa_keyboard()
+        )
+    
+    elif callback_data == "navigation":
+        await query.edit_message_text(
+            "🗺️ *Navigasi & Lokasi*\n\nPilih layanan navigasi:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=navigation_keyboard()
+        )
+    
+    elif callback_data == "my_progress":
+        progress = user_manager.get_progress(user_id)
+        percentage = user_manager.get_progress_percentage(user_id)
+        
+        steps = {
+            'ihram': '🧺 Ihram',
+            'thawaf': '🕋 Thawaf',
+            'sai': '🏃 Sa\'i',
+            'tahalul': '✂️ Tahalul'
+        }
+        
+        progress_text = f"📊 *Progress Umrah*\n\n{format_progress_bar(percentage)}\n\n*Status:*\n"
+        
+        for key, name in steps.items():
+            status = "✅" if progress.get(key, {}).get('completed') else "⬜"
+            progress_text += f"{status} {name}\n"
+        
+        await query.edit_message_text(
+            progress_text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=progress_keyboard()
+        )
+    
+    elif callback_data == "budget":
+        result = await api.tips("budget")
+        if result:
+            tips_text = "*💰 Budget Umrah*\n\n"
+            tips_text += "\n".join(f"• {tip}" for tip in result.get("tips", []))
+            
+            await query.edit_message_text(
+                tips_text,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=back_button()
+            )
+    
+    elif callback_data == "emergency":
+        await query.edit_message_text(
+            "🆘 *Bantuan Darurat*\n\nPilih jenis bantuan:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=emergency_keyboard()
+        )
+    
+    elif callback_data == "settings":
+        await query.edit_message_text(
+            "⚙️ *Pengaturan*\n\nKustomisasi bot sesuai kebutuhan Anda:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=settings_keyboard()
+        )
+    
+    # ========================================================================
+    # MANASIK GUIDE BUTTONS
+    # ========================================================================
+    
+    elif callback_data.startswith("guide_"):
+        topic = callback_data.replace("guide_", "")
+        
+        # Call AI for detailed guide
+        result = await api.chat(f"Jelaskan tata cara {topic} dalam umrah", user_id)
+        
+        if result:
+            await query.edit_message_text(
+                result["response"],
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=manasik_keyboard()
+            )
+    
+    # ========================================================================
+    # DOA BUTTONS
+    # ========================================================================
+    
+    elif callback_data.startswith("doa_"):
+        doa_type = callback_data.replace("doa_", "")
+        
+        # Call AI for doa
+        result = await api.chat(f"Berikan doa {doa_type} lengkap dengan Arab, Latin, dan terjemahan", user_id)
+        
+        if result:
+            await query.edit_message_text(
+                result["response"],
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=doa_keyboard()
+            )
+    
+    # ========================================================================
+    # PROGRESS TRACKING BUTTONS
+    # ========================================================================
+    
+    elif callback_data.startswith("prog_"):
+        action = callback_data.replace("prog_", "")
+        
+        if action == "view":
+            # Already handled in my_progress
+            pass
+        else:
+            # Mark step as completed
+            user_manager.update_progress(user_id, action, True)
+            
+            await query.answer("✅ Progress diperbarui!")
+            
+            # Refresh progress display
+            progress = user_manager.get_progress(user_id)
+            percentage = user_manager.get_progress_percentage(user_id)
+            
+            progress_text = f"📊 *Progress Updated!*\n\n{format_progress_bar(percentage)}\n\n"
+            progress_text += f"✅ {action.capitalize()} telah ditandai selesai!\n\n"
+            
+            if percentage == 100:
+                progress_text += "🎉 *Alhamdulillah! Umrah Anda sudah lengkap!*\n"
+                progress_text += "Semoga diterima oleh Allah SWT. 🤲"
+            
+            await query.edit_message_text(
+                progress_text,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=progress_keyboard()
+            )
+    
+    # ========================================================================
+    # EMERGENCY BUTTONS
+    # ========================================================================
+    
+    elif callback_data.startswith("emerg_"):
+        emerg_type = callback_data.replace("emerg_", "")
+        
+        result = await api.emergency(f"bantuan {emerg_type}", emerg_type)
+        
+        if result:
+            await query.edit_message_text(
+                result["response"],
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=emergency_keyboard()
+            )
+    
+    # ========================================================================
+    # SETTINGS BUTTONS
+    # ========================================================================
+    
+    elif callback_data == "settings_language":
+        await query.edit_message_text(
+            "🌍 *Pilih Bahasa*\n\nSelect your language:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=language_keyboard()
+        )
+    
+    elif callback_data.startswith("lang_"):
+        lang = callback_data.replace("lang_", "")
+        user_manager.set_user_language(user_id, lang)
+        
+        await query.answer(f"✅ Bahasa diubah ke {LANGUAGES[lang]}")
+        
+        await query.edit_message_text(
+            f"✅ Bahasa berhasil diubah ke {LANGUAGES[lang]}",
+            reply_markup=settings_keyboard()
+        )
+    
+    # ========================================================================
+    # NAVIGATION BUTTONS
+    # ========================================================================
+    
+    elif callback_data == "back_to_main":
+        await query.edit_message_text(
+            "📱 *Menu Utama*\n\nPilih fitur yang ingin Anda gunakan:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=main_menu_keyboard()
+        )
+
+# ============================================================================
+# MESSAGE HANDLER (AI Chat)
+# ============================================================================
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle text messages with AI"""
+    user_id = update.effective_user.id
+    user_message = update.message.text
+    
+    # Skip if it's a button text
+    if user_message in ["🕌 Sholat", "📚 Panduan", "🤲 Doa", "🗺️ Navigasi", "📊 Progress", "🆘 Darurat"]:
+        # Handle as button press
+        if user_message == "🕌 Sholat":
+            await sholat_command(update, context)
+        elif user_message == "📊 Progress":
+            await progress_command(update, context)
+        elif user_message == "🆘 Darurat":
+            await emergency_command(update, context)
+        else:
+            await menu_command(update, context)
+        return
+    
+    logger.info(f"User {user_id}: {user_message}")
+    
+    # Show typing
+    await update.message.chat.send_action(ChatAction.TYPING)
+    
+    # Call AI
+    result = await api.chat(user_message, user_id)
+    
+    if result:
+        response_text = result.get("response", "Maaf, tidak ada respons.")
+        sources = result.get("sources", [])
+        
+        # Format response
+        formatted_response = response_text
+        
+        # Add sources if available
+        if sources:
+            formatted_response += "\n\n📚 *Sumber:*\n"
+            for i, source in enumerate(sources[:2], 1):
+                formatted_response += f"{i}. {source.get('source', 'Unknown')}\n"
+        
+        # Save to conversation history
+        user_manager.add_conversation(
+            user_id,
+            user_message,
+            response_text,
+            result.get("agent", "AI")
+        )
+        
+        await update.message.reply_text(
+            formatted_response,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        # Fallback
+        await update.message.reply_text(
+            "⚠️ Maaf, sistem AI sedang offline. Gunakan menu untuk akses cepat.",
+            reply_markup=main_menu_keyboard()
+        )
+
+# ============================================================================
+# LOCATION HANDLER
+# ============================================================================
+
+async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle shared location"""
+    user_id = update.effective_user.id
+    location = update.message.location
+    
+    logger.info(f"User {user_id} shared location: {location.latitude}, {location.longitude}")
+    
+    # Save location
+    location_name = "Makkah"  # TODO: Reverse geocoding
+    user_manager.set_user_location(user_id, location_name)
+    
+    response = f"""
+📍 *Lokasi Diterima*
+
+Koordinat: {location.latitude}, {location.longitude}
+
+Saya akan menggunakan lokasi ini untuk:
+- Jadwal sholat yang akurat
+- Rekomendasi tempat terdekat
+- Navigasi yang lebih baik
+
+Ketik "tempat makan terdekat" atau "hotel dekat saya" untuk rekomendasi!
+    """
+    
+    await update.message.reply_text(
+        response,
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+# ============================================================================
+# PHOTO HANDLER (Image Recognition)
+# ============================================================================
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle uploaded photos"""
+    user_id = update.effective_user.id
+    
+    await update.message.reply_text(
+        "📸 *Foto Diterima!*\n\n"
+        "Fitur image recognition sedang dalam pengembangan.\n\n"
+        "Sementara ini, Anda bisa:\n"
+        "• Tanyakan lokasi dengan deskripsi\n"
+        "• Gunakan menu navigasi\n"
+        "• Share location GPS",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    logger.info(f"User {user_id} uploaded photo")
+
+# ============================================================================
+# ERROR HANDLER
+# ============================================================================
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Handle errors"""
+    logger.error(f"Exception: {context.error}", exc_info=context.error)
+    
+    if isinstance(update, Update) and update.effective_message:
+        await update.effective_message.reply_text(
+            "⚠️ Terjadi kesalahan. Silakan coba lagi atau ketik /help untuk bantuan."
+        )
+
+# ============================================================================
+# BOT SETUP & STARTUP
+# ============================================================================
+
+async def post_init(application: Application):
+    """Initialize bot after startup"""
+    try:
+        # Set bot commands
+        commands = [
+            BotCommand("start", "Mulai bot & menu utama"),
+            BotCommand("menu", "Tampilkan menu"),
+            BotCommand("sholat", "Jadwal sholat"),
+            BotCommand("progress", "Lihat progress umrah"),
+            BotCommand("emergency", "Bantuan darurat"),
+            BotCommand("tips", "Tips harian"),
+            BotCommand("settings", "Pengaturan"),
+            BotCommand("help", "Bantuan & panduan"),
+        ]
+        await application.bot.set_my_commands(commands)
+        logger.success("✓ Bot commands set")
+        
+        # Test API connection
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{API_URL}/health")
+                if response.status_code == 200:
+                    logger.success(f"✓ Backend API connected: {API_URL}")
+                else:
+                    logger.warning(f"⚠ Backend API returned {response.status_code}")
+        except Exception as e:
+            logger.warning(f"⚠ Backend API not reachable: {e}")
+            logger.info("Bot will run in fallback mode")
+        
+    except Exception as e:
+        logger.error(f"Error in post_init: {e}")
+
+async def post_shutdown(application: Application):
+    """Cleanup on shutdown"""
+    logger.info("Bot shutting down...")
+    user_manager.close()
+    logger.success("✓ Cleanup completed")
+
+# ============================================================================
+# MAIN FUNCTION
+# ============================================================================
+
+def main():
+    """Start the bot"""
+    
+    if not BOT_TOKEN or BOT_TOKEN == "your-bot-token-here":
+        logger.error("❌ TELEGRAM_BOT_TOKEN not set!")
+        print("\n" + "="*70)
+        print("❌ ERROR: BOT TOKEN NOT FOUND!")
+        print("="*70)
+        print("Setup:")
+        print("1. Chat @BotFather in Telegram")
+        print("2. Create bot with /newbot")
+        print("3. Copy token")
+        print("4. Add to .env: TELEGRAM_BOT_TOKEN=your-token")
+        print("="*70 + "\n")
+        return
+    
+    try:
+        # Create request handler
+        request = HTTPXRequest(
+            connect_timeout=30.0,
+            read_timeout=30.0,
+            write_timeout=30.0,
+            pool_timeout=30.0,
+        )
+        
+        # Create application
+        app = (
+            Application.builder()
+            .token(BOT_TOKEN)
+            .request(request)
+            .post_init(post_init)
+            .post_shutdown(post_shutdown)
+            .build()
+        )
+        
+        # Add handlers
+        app.add_handler(CommandHandler("start", start_command))
+        app.add_handler(CommandHandler("help", help_command))
+        app.add_handler(CommandHandler("menu", menu_command))
+        app.add_handler(CommandHandler("sholat", sholat_command))
+        app.add_handler(CommandHandler("progress", progress_command))
+        app.add_handler(CommandHandler("emergency", emergency_command))
+        
+        # Callback query handler (for buttons)
+        app.add_handler(CallbackQueryHandler(button_callback))
+        
+        # Message handlers
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        app.add_handler(MessageHandler(filters.LOCATION, handle_location))
+        app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        
+        # Error handler
+        app.add_error_handler(error_handler)
+        
+        # Print startup info
+        logger.info("=" * 80)
+        logger.info("🕌 UMRAH ASSISTANT BOT v3.0 - SUPER ADVANCED")
+        logger.info("=" * 80)
+        logger.success("✓ Bot initialized")
+        logger.info(f"🔗 Backend: {API_URL}")
+        logger.info("🤖 Features:")
+        for feature, enabled in FEATURES.items():
+            status = "✓" if enabled else "✗"
+            logger.info(f"  {status} {feature}")
+        logger.info("")
+        logger.info("📱 Test in Telegram with /start")
+        logger.info("🛑 Press Ctrl+C to stop")
+        logger.info("=" * 80)
+        
+        print("\n" + "=" * 80)
+        print("🕌 UMRAH ASSISTANT BOT v3.0")
+        print("=" * 80)
+        print("✅ Bot is running!")
+        print(f"🤖 Super advanced features enabled")
+        print(f"🔗 Backend: {API_URL}")
+        print("\n📱 Open Telegram and start chatting!")
+        print("🛑 Press Ctrl+C to stop")
+        print("=" * 80 + "\n")
+        
+        # Run bot
+        app.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
+        
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+        print("\n👋 Bot stopped. Goodbye!\n")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
+        raise
+
+if __name__ == '__main__':
+    main()
