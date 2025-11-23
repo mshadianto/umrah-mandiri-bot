@@ -1,3 +1,14 @@
+</details>
+
+---
+
+### **File 2: `telegram-bot/bot.py`**
+**Path:** `telegram-bot/bot.py`  
+**Action:** Replace - Remove duplicate budget handling
+
+<details>
+<summary>Click to expand - bot.py (FIXED)</summary>
+```python
 # -*- coding: utf-8 -*-
 """Umrah Assistant Bot - Clean Version"""
 import logging
@@ -19,7 +30,7 @@ from user_manager import user_manager
 from keyboards import *
 
 # Import budget handler
-from handlers.budget_handler import get_budget_handler, budget_start
+from handlers.budget_handler import get_budget_handler
 
 # Logging
 from loguru import logger
@@ -106,7 +117,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Handle text messages"""
     text = update.message.text
     
-    # Handle menu buttons
+    # Handle menu buttons (except Budget - handled by ConversationHandler)
     if text == "💬 AI Chat":
         await update.message.reply_text(
             "💬 *AI Chat Mode*\n\n"
@@ -128,11 +139,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             "• Restoran halal",
             parse_mode="Markdown"
         )
-    
-    elif text == "💰 Budget":
-        # Trigger budget calculator using command simulation
-        await budget_start(update, context)
-        return  # Important: stop here to let ConversationHandler take over
     
     elif text == "🆘 Emergency":
         keyboard = [
@@ -224,7 +230,6 @@ def main():
         app = Application.builder().token(BOT_TOKEN).build()
         
         # IMPORTANT: Add budget conversation handler FIRST
-        # This ensures it has priority over other handlers
         app.add_handler(get_budget_handler())
         
         # Add command handlers
