@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Budget Calculator Handler
-Simulasi biaya umrah dengan berbagai kategori
+AI-Powered Budget Calculator Handler
+Uses RAG + Agentic AI for optimal recommendations
 """
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -12,32 +12,14 @@ from telegram.ext import (
     filters
 )
 from telegram.constants import ChatAction
+import httpx
+from config import API_URL
 
 # Conversation states
-CHOOSING_JAMAAH, CHOOSING_DURATION, CHOOSING_HOTEL, SHOWING_RESULT = range(4)
-
-# Harga base (dalam IDR)
-PRICES = {
-    "visa": 2500000,
-    "flight_jakarta_jeddah": 8500000,
-    "transport_local_per_day": 150000,
-    "meal_per_day": 200000,
-    "hotel_makkah": {
-        "bintang_3": 500000,
-        "bintang_4": 1000000,
-        "bintang_5": 2000000
-    },
-    "hotel_madinah": {
-        "bintang_3": 400000,
-        "bintang_4": 800000,
-        "bintang_5": 1500000
-    },
-    "lain_lain": 1000000
-}
+CHOOSING_JAMAAH, CHOOSING_DURATION, CHOOSING_BUDGET, SHOWING_RESULTS = range(4)
 
 async def budget_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start budget calculation"""
-    # Get message object
+    """Start budget optimization"""
     if update.message:
         message = update.message
         chat = message.chat
@@ -59,8 +41,10 @@ async def budget_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     text = (
-        "💰 *Simulasi Budget Umrah*\n\n"
-        "Mari hitung estimasi biaya umrah Anda!\n\n"
+        "🤖 *AI Budget Optimizer - Powered by RAG*\n\n"
+        "Saya akan analisis & cari paket umrah TERBAIK untuk Anda!\n\n"
+        "💡 AI akan analyze 50+ hotel & airlines\n"
+        "📊 Dapat 3 rekomendasi optimal\n\n"
         "*Langkah 1:* Berapa jumlah jamaah?"
     )
     
@@ -125,132 +109,244 @@ async def choose_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['duration'] = duration_map.get(query.data, 10)
     
     keyboard = [
-        [InlineKeyboardButton("⭐⭐⭐ Bintang 3", callback_data="budget_hotel_3")],
-        [InlineKeyboardButton("⭐⭐⭐⭐ Bintang 4", callback_data="budget_hotel_4")],
-        [InlineKeyboardButton("⭐⭐⭐⭐⭐ Bintang 5", callback_data="budget_hotel_5")],
+        [InlineKeyboardButton("💰 Ekonomis (Budget Terbatas)", callback_data="budget_pref_ekonomis")],
+        [InlineKeyboardButton("⭐ Standar (Balance)", callback_data="budget_pref_standar")],
+        [InlineKeyboardButton("👑 Premium (Luxury)", callback_data="budget_pref_premium")],
+        [InlineKeyboardButton("🎯 Semua Opsi (Recommended)", callback_data="budget_pref_all")],
         [InlineKeyboardButton("⬅️ Kembali", callback_data="budget_back_duration")]
     ]
     
     await query.edit_message_text(
         f"✅ Durasi: *{context.user_data['duration']} hari*\n\n"
-        "*Langkah 3:* Pilih kategori hotel:",
+        "*Langkah 3:* Pilih preferensi budget:\n\n"
+        "💡 Pilih 'Semua Opsi' untuk dapat 3 rekomendasi!",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
     
-    return CHOOSING_HOTEL
+    return CHOOSING_BUDGET
 
-async def calculate_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Calculate and show budget"""
+async def analyze_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Call AI to analyze and recommend packages"""
     query = update.callback_query
     await query.answer()
     
-    hotel_map = {
-        "budget_hotel_3": "bintang_3",
-        "budget_hotel_4": "bintang_4",
-        "budget_hotel_5": "bintang_5"
+    preference_map = {
+        "budget_pref_ekonomis": "ekonomis",
+        "budget_pref_standar": "standar",
+        "budget_pref_premium": "premium",
+        "budget_pref_all": "all"
     }
     
-    context.user_data['hotel_category'] = hotel_map.get(query.data, "bintang_4")
+    context.user_data['preference'] = preference_map.get(query.data, "all")
     
-    # Calculate costs
+    # Show loading message
+    await query.edit_message_text(
+        "🤖 *AI sedang menganalisis...*\n\n"
+        "⏳ Mencari kombinasi terbaik dari:\n"
+        "• 50+ hotel options\n"
+        "• 10+ airlines\n"
+        "• Real-time prices\n\n"
+        "Mohon tunggu 5-10 detik...",
+        parse_mode="Markdown"
+    )
+    
+    # Call backend API
     jamaah = context.user_data['jamaah']
     duration = context.user_data['duration']
-    hotel_cat = context.user_data['hotel_category']
+    preference = context.user_data['preference']
     
-    # Assume split: 60% Makkah, 40% Madinah
-    makkah_nights = int(duration * 0.6)
-    madinah_nights = duration - makkah_nights
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{API_URL}/api/v1/budget/optimize",
+                json={
+                    "jamaah": jamaah,
+                    "duration": duration,
+                    "preferences": {"type": preference}
+                }
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                packages = data['data']['packages']
+                
+                # Format recommendations
+                result_text = await format_recommendations(packages, jamaah, duration, preference)
+                
+                keyboard = [
+                    [InlineKeyboardButton("📊 Detail Paket 1", callback_data="budget_detail_0")],
+                    [InlineKeyboardButton("📊 Detail Paket 2", callback_data="budget_detail_1")],
+                    [InlineKeyboardButton("📊 Detail Paket 3", callback_data="budget_detail_2")],
+                    [InlineKeyboardButton("🔄 Hitung Ulang", callback_data="budget_restart")],
+                    [InlineKeyboardButton("❌ Selesai", callback_data="budget_done")]
+                ]
+                
+                await query.edit_message_text(
+                    result_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="Markdown"
+                )
+                
+                # Save packages for detail view
+                context.user_data['packages'] = packages
+                
+                return SHOWING_RESULTS
+            else:
+                raise Exception("API Error")
+                
+    except Exception as e:
+        await query.edit_message_text(
+            f"❌ Maaf, terjadi kesalahan saat menganalisis.\n\n"
+            f"Error: {str(e)}\n\n"
+            "Silakan coba lagi atau hubungi admin.",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
+async def format_recommendations(packages, jamaah, duration, preference):
+    """Format AI recommendations into readable message"""
     
-    # Calculate each component
-    visa_total = PRICES['visa'] * jamaah
-    flight_total = PRICES['flight_jakarta_jeddah'] * jamaah
-    hotel_makkah_total = PRICES['hotel_makkah'][hotel_cat] * makkah_nights * jamaah
-    hotel_madinah_total = PRICES['hotel_madinah'][hotel_cat] * madinah_nights * jamaah
-    transport_total = PRICES['transport_local_per_day'] * duration * jamaah
-    meal_total = PRICES['meal_per_day'] * duration * jamaah
-    misc_total = PRICES['lain_lain'] * jamaah
-    
-    grand_total = (visa_total + flight_total + hotel_makkah_total + 
-                   hotel_madinah_total + transport_total + meal_total + misc_total)
-    
-    per_person = grand_total / jamaah
-    
-    # Format message
-    hotel_star = "⭐" * int(hotel_cat.split('_')[1])
-    
-    result = f"""💰 *ESTIMASI BUDGET UMRAH*
+    if preference != "all" and len(packages) == 1:
+        # Show only selected preference
+        pkg = packages[0]
+        text = f"""🎯 *REKOMENDASI AI: {pkg['name'].upper()}*
 ━━━━━━━━━━━━━━━━━━━━━━
 
-📊 *Detail Paket:*
-👥 Jamaah: {jamaah} orang
-📅 Durasi: {duration} hari
-🏨 Hotel: {hotel_star}
-🕋 Makkah: {makkah_nights} malam
-🕌 Madinah: {madinah_nights} malam
+👥 {jamaah} Jamaah | 📅 {duration} Hari
+
+💰 *TOTAL: Rp {pkg['total']:,.0f}*
+👤 *Per Orang: Rp {pkg['per_person']:,.0f}*
+
+✨ *Keunggulan:*
+{chr(10).join(f'• {h}' for h in pkg['highlights'][:3])}
+
+🧠 *AI Reasoning:*
+{pkg['reasoning'][:200]}...
+
+━━━━━━━━━━━━━━━━━━━━━━
+Gunakan button di bawah untuk melihat detail lengkap!"""
+    else:
+        # Show all 3 packages summary
+        text = f"""🤖 *AI BUDGET OPTIMIZER RESULTS*
+━━━━━━━━━━━━━━━━━━━━━━
+
+👥 {jamaah} Jamaah | 📅 {duration} Hari
+
+AI menemukan 3 paket optimal untuk Anda:
+
+"""
+        for i, pkg in enumerate(packages[:3], 1):
+            emoji = "💰" if pkg['category'] == "ekonomis" else "⭐" if pkg['category'] == "standar" else "👑"
+            text += f"""{emoji} *{pkg['name']}*
+Total: Rp {pkg['total']:,.0f}
+Per Orang: Rp {pkg['per_person']:,.0f}
+{pkg['highlights'][0] if pkg['highlights'] else 'Best value'}
+
+"""
+        
+        text += """━━━━━━━━━━━━━━━━━━━━━━
+💡 Klik 'Detail Paket' untuk breakdown lengkap!"""
+    
+    return text
+
+async def show_package_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show detailed breakdown of selected package"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Get package index from callback data
+    pkg_idx = int(query.data.split("_")[-1])
+    packages = context.user_data.get('packages', [])
+    
+    if pkg_idx >= len(packages):
+        await query.answer("Paket tidak ditemukan")
+        return SHOWING_RESULTS
+    
+    pkg = packages[pkg_idx]
+    
+    # Format detailed breakdown
+    detail = f"""📊 *DETAIL: {pkg['name'].upper()}*
+━━━━━━━━━━━━━━━━━━━━━━
+
+🏨 *HOTEL MAKKAH*
+{pkg['hotels']['makkah']['name']}
+{"⭐" * pkg['hotels']['makkah']['stars']} - {pkg['hotels']['makkah']['distance']}
+{pkg['hotels']['makkah']['nights']} malam × Rp {pkg['hotels']['makkah']['price_per_night']:,.0f}
+Subtotal: Rp {pkg['hotels']['makkah']['subtotal']:,.0f}
+
+🕌 *HOTEL MADINAH*
+{pkg['hotels']['madinah']['name']}
+{"⭐" * pkg['hotels']['madinah']['stars']} - {pkg['hotels']['madinah']['distance']}
+{pkg['hotels']['madinah']['nights']} malam × Rp {pkg['hotels']['madinah']['price_per_night']:,.0f}
+Subtotal: Rp {pkg['hotels']['madinah']['subtotal']:,.0f}
+
+✈️ *PENERBANGAN*
+{pkg['flight']['airline']} ({pkg['flight']['type']})
+{context.user_data['jamaah']} pax × Rp {pkg['flight']['price_per_person']:,.0f}
+Subtotal: Rp {pkg['flight']['subtotal']:,.0f}
+
+💵 *BIAYA LAIN*
+📋 Visa: Rp {pkg['costs']['visa']:,.0f}
+🛡️ Asuransi: Rp {pkg['costs']['insurance']:,.0f}
+🚗 Transport: Rp {pkg['costs']['transport']:,.0f}
+🍽️ Makan: Rp {pkg['costs']['meals']:,.0f}
+💼 Lain-lain: Rp {pkg['costs']['misc']:,.0f}
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-💵 *Rincian Biaya:*
+💰 *TOTAL: Rp {pkg['total']:,.0f}*
+👤 *Per Orang: Rp {pkg['per_person']:,.0f}*
 
-📋 Visa Umrah
-Rp {visa_total:,.0f}
-
-✈️ Tiket Pesawat (PP)
-Rp {flight_total:,.0f}
-
-🏨 Hotel Makkah ({makkah_nights} malam)
-Rp {hotel_makkah_total:,.0f}
-
-🏨 Hotel Madinah ({madinah_nights} malam)
-Rp {hotel_madinah_total:,.0f}
-
-🚗 Transportasi Lokal
-Rp {transport_total:,.0f}
-
-🍽️ Konsumsi
-Rp {meal_total:,.0f}
-
-💼 Lain-lain
-Rp {misc_total:,.0f}
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-💰 *TOTAL BIAYA*
-*Rp {grand_total:,.0f}*
-
-👤 *Per Orang*
-*Rp {per_person:,.0f}*
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-ℹ️ Catatan:
-- Harga estimasi, bisa berubah
-- Sudah termasuk hotel & makan
-- Belum termasuk belanja pribadi
-- Harga tiket tergantung musim"""
+🧠 *Kenapa Paket Ini?*
+{pkg['reasoning']}"""
+    
+    # Add tips if available
+    if 'tips' in pkg and pkg['tips']:
+        detail += f"\n\n💡 *Tips Khusus:*\n"
+        detail += chr(10).join(f'• {t}' for t in pkg['tips'][:3])
     
     keyboard = [
-        [InlineKeyboardButton("🔄 Hitung Ulang", callback_data="budget_restart")],
+        [InlineKeyboardButton("⬅️ Kembali ke Summary", callback_data="budget_back_summary")],
         [InlineKeyboardButton("📱 Hubungi Travel", url="https://wa.me/")],
         [InlineKeyboardButton("❌ Selesai", callback_data="budget_done")]
     ]
     
     await query.edit_message_text(
-        result,
+        detail,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
     
-    context.user_data['last_budget'] = {
-        'jamaah': jamaah,
-        'duration': duration,
-        'hotel': hotel_cat,
-        'total': grand_total,
-        'per_person': per_person
-    }
+    return SHOWING_RESULTS
+
+async def back_to_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Go back to summary view"""
+    query = update.callback_query
+    await query.answer()
     
-    return SHOWING_RESULT
+    jamaah = context.user_data['jamaah']
+    duration = context.user_data['duration']
+    preference = context.user_data['preference']
+    packages = context.user_data['packages']
+    
+    result_text = await format_recommendations(packages, jamaah, duration, preference)
+    
+    keyboard = [
+        [InlineKeyboardButton("📊 Detail Paket 1", callback_data="budget_detail_0")],
+        [InlineKeyboardButton("📊 Detail Paket 2", callback_data="budget_detail_1")],
+        [InlineKeyboardButton("📊 Detail Paket 3", callback_data="budget_detail_2")],
+        [InlineKeyboardButton("🔄 Hitung Ulang", callback_data="budget_restart")],
+        [InlineKeyboardButton("❌ Selesai", callback_data="budget_done")]
+    ]
+    
+    await query.edit_message_text(
+        result_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    
+    return SHOWING_RESULTS
 
 async def budget_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Finish budget conversation"""
@@ -258,9 +354,10 @@ async def budget_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer("Terima kasih!")
     
     await query.edit_message_text(
-        "✅ Simulasi budget selesai!\n\n"
-        "Ketik /budget untuk menghitung ulang.\n"
-        "Ketik /menu untuk kembali ke menu utama.",
+        "✅ Analisis budget selesai!\n\n"
+        "💾 Hasil sudah tersimpan di chat history.\n"
+        "🔄 Ketik /budget untuk analisis ulang.\n"
+        "📋 Ketik /menu untuk menu utama.",
         parse_mode="Markdown"
     )
     
@@ -272,7 +369,7 @@ async def budget_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer("Dibatalkan")
     
     await query.edit_message_text(
-        "❌ Simulasi budget dibatalkan.\n\n"
+        "❌ Analisis budget dibatalkan.\n\n"
         "Ketik /budget untuk mulai lagi.",
         parse_mode="Markdown"
     )
@@ -293,11 +390,13 @@ def get_budget_handler():
                 CallbackQueryHandler(choose_duration, pattern="^budget_duration_"),
                 CallbackQueryHandler(budget_start, pattern="^budget_back_jamaah$")
             ],
-            CHOOSING_HOTEL: [
-                CallbackQueryHandler(calculate_budget, pattern="^budget_hotel_"),
+            CHOOSING_BUDGET: [
+                CallbackQueryHandler(analyze_budget, pattern="^budget_pref_"),
                 CallbackQueryHandler(choose_jamaah, pattern="^budget_back_duration$")
             ],
-            SHOWING_RESULT: [
+            SHOWING_RESULTS: [
+                CallbackQueryHandler(show_package_detail, pattern="^budget_detail_"),
+                CallbackQueryHandler(back_to_summary, pattern="^budget_back_summary$"),
                 CallbackQueryHandler(budget_start, pattern="^budget_restart$"),
                 CallbackQueryHandler(budget_done, pattern="^budget_done$")
             ]
@@ -306,5 +405,5 @@ def get_budget_handler():
             CallbackQueryHandler(budget_cancel, pattern="^budget_cancel$")
         ],
         name="budget_conversation",
-        persistent=False 
+        persistent=False
     )
