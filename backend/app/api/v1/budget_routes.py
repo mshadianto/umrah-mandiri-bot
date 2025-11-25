@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Budget Optimization Routes - FIXED VERSION
-Endpoint sudah disesuaikan dengan yang dipanggil oleh bot: /api/v1/budget/*
+Budget optimization routes for Umrah Assistant API
+FIXED VERSION - Correct endpoint prefix
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -12,51 +12,26 @@ from app.agents.budget_agent import budget_agent
 
 logger = logging.getLogger(__name__)
 
-# FIX: Gunakan prefix lengkap yang sesuai dengan bot
-# Bot calls: /api/v1/budget/optimize
+# ✅ FIXED: Correct prefix with /api/v1
 router = APIRouter(prefix="/api/v1/budget", tags=["Budget"])
 
 
 class BudgetOptimizeRequest(BaseModel):
-    """Request model untuk optimisasi budget"""
+    """Request model for budget optimization"""
     jamaah: int
     duration: int
     budget_max: Optional[int] = None
     preferences: Optional[Dict[str, Any]] = None
 
 
-class BudgetOptimizeResponse(BaseModel):
-    """Response model untuk optimisasi budget"""
-    status: str
-    data: Dict[str, Any]
-    message: Optional[str] = None
-
-
-@router.post("/optimize", response_model=BudgetOptimizeResponse)
+@router.post("/optimize")
 async def optimize_budget(request: BudgetOptimizeRequest):
     """
-    🤖 AI Budget Optimizer
-    
-    Endpoint ini menganalisis requirement user dan memberikan 3 rekomendasi
-    paket umrah optimal menggunakan RAG + LLM (Groq).
-    
-    Args:
-        request: BudgetOptimizeRequest dengan jamaah, duration, dll
-    
-    Returns:
-        BudgetOptimizeResponse dengan 3 paket rekomendasi
-    
-    Example:
-        POST /api/v1/budget/optimize
-        {
-            "jamaah": 2,
-            "duration": 10,
-            "budget_max": 50000000,
-            "preferences": {"type": "all"}
-        }
+    AI-powered budget optimization
+    Returns 3 package recommendations (Ekonomis, Standar, Premium)
     """
     try:
-        logger.info(f"📊 Budget optimization request: {request.jamaah} jamaah, {request.duration} days")
+        logger.info(f"Budget optimization request: {request.jamaah} jamaah, {request.duration} days")
         
         # Call budget agent
         result = await budget_agent.analyze_and_recommend(
@@ -66,35 +41,25 @@ async def optimize_budget(request: BudgetOptimizeRequest):
             preferences=request.preferences
         )
         
-        # Check if result is valid
+        # Validate result
         if not result or "packages" not in result:
             logger.error("Budget agent returned invalid result")
             raise HTTPException(
                 status_code=500,
-                detail="AI analysis failed. Please check Groq API configuration."
+                detail="Budget optimization failed - invalid response from AI"
             )
         
-        # Check if we got packages
-        if len(result.get('packages', [])) == 0:
-            logger.warning("No packages generated")
-            raise HTTPException(
-                status_code=500,
-                detail="Could not generate package recommendations. Please try again."
-            )
+        logger.info(f"✅ Successfully generated {len(result['packages'])} packages")
         
-        logger.info(f"✅ Generated {len(result.get('packages', []))} package recommendations")
+        return {
+            "status": "success",
+            "data": result
+        }
         
-        return BudgetOptimizeResponse(
-            status="success",
-            data=result,
-            message="Budget optimization completed successfully"
-        )
-        
-    except HTTPException as he:
-        # Re-raise HTTP exceptions
-        raise he
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"❌ Budget optimization error: {e}", exc_info=True)
+        logger.error(f"Budget optimization error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Budget optimization failed: {str(e)}"
@@ -102,60 +67,30 @@ async def optimize_budget(request: BudgetOptimizeRequest):
 
 
 @router.get("/health")
-async def budget_health():
-    """
-    Health check untuk budget service
-    Memeriksa status Groq API configuration
-    """
-    from app.config import settings
-    
-    groq_configured = bool(
-        settings.GROQ_API_KEY and 
-        settings.GROQ_API_KEY != "your-groq-key-here" and
-        len(settings.GROQ_API_KEY) > 20
-    )
-    
-    return {
-        "status": "healthy" if groq_configured else "degraded",
-        "service": "budget_optimizer",
-        "groq_api": "configured" if groq_configured else "not_configured",
-        "endpoint": "/api/v1/budget/optimize",
-        "note": "Get free Groq API key from https://console.groq.com" if not groq_configured else None
-    }
-
-
-@router.get("/knowledge-base")
-async def get_knowledge_base():
-    """
-    Get sample dari knowledge base
-    Untuk debugging dan verification
-    """
-    from app.agents.budget_agent import KNOWLEDGE_BASE
-    
-    # Return preview
-    lines = KNOWLEDGE_BASE.split('\n')
-    preview_lines = lines[:50]  # First 50 lines
-    
-    return {
-        "status": "success",
-        "preview": '\n'.join(preview_lines),
-        "total_lines": len(lines),
-        "total_chars": len(KNOWLEDGE_BASE),
-        "note": "This is a preview of the knowledge base used for budget optimization"
-    }
+async def health_check():
+    """Health check for budget service"""
+    try:
+        # Check if Groq API key is configured
+        groq_configured = budget_agent.groq_client is not None
+        
+        return {
+            "status": "healthy",
+            "service": "budget_optimizer",
+            "groq_api": "configured" if groq_configured else "not_configured",
+            "endpoint": "/api/v1/budget/optimize"
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
 
 
 @router.get("/test")
-async def test_budget():
-    """
-    Test endpoint untuk memverifikasi budget service berjalan
-    """
+async def test_endpoint():
+    """Test endpoint to verify routing works"""
     return {
-        "status": "ok",
-        "message": "Budget service is running",
-        "endpoints": {
-            "optimize": "/api/v1/budget/optimize (POST)",
-            "health": "/api/v1/budget/health (GET)",
-            "knowledge_base": "/api/v1/budget/knowledge-base (GET)"
-        }
+        "message": "Budget service is reachable!",
+        "endpoint": "/api/v1/budget/test",
+        "status": "ok"
     }
