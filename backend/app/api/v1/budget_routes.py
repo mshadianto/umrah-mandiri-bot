@@ -1,55 +1,96 @@
 # -*- coding: utf-8 -*-
 """
 Budget optimization routes for Umrah Assistant API
-FIXED VERSION - Correct endpoint prefix
+FIXED VERSION - No circular import (using lazy loading)
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 import logging
-
-from app.agents.budget_agent import budget_agent
 
 logger = logging.getLogger(__name__)
 
-# ✅ FIXED: Correct prefix with /api/v1
+# ✅ Create router with correct prefix
 router = APIRouter(prefix="/api/v1/budget", tags=["Budget"])
 
 
-class BudgetOptimizeRequest(BaseModel):
+class BudgetRequest(BaseModel):
     """Request model for budget optimization"""
     jamaah: int
     duration: int
     budget_max: Optional[int] = None
-    preferences: Optional[Dict[str, Any]] = None
+    preferences: Optional[Dict] = None
+
+
+@router.get("/health")
+async def budget_health():
+    """
+    Health check for budget service
+    """
+    import os
+    
+    groq_configured = bool(os.getenv("GROQ_API_KEY"))
+    
+    return {
+        "status": "healthy",
+        "service": "budget_optimizer",
+        "groq_api": "configured" if groq_configured else "not_configured",
+        "endpoint": "/api/v1/budget/optimize"
+    }
+
+
+@router.get("/test")
+async def budget_test():
+    """
+    Test endpoint to verify budget service is working
+    """
+    return {
+        "status": "ok",
+        "message": "Budget service is running",
+        "endpoints": {
+            "health": "/api/v1/budget/health",
+            "optimize": "/api/v1/budget/optimize",
+            "knowledge_base": "/api/v1/budget/knowledge-base"
+        }
+    }
 
 
 @router.post("/optimize")
-async def optimize_budget(request: BudgetOptimizeRequest):
+async def optimize_budget(request: BudgetRequest):
     """
-    AI-powered budget optimization
-    Returns 3 package recommendations (Ekonomis, Standar, Premium)
+    Optimize budget and return 3 package recommendations using AI
+    
+    Uses lazy import to avoid circular dependency
     """
     try:
+        # ✅ LAZY IMPORT - Import only when function is called
+        # This avoids circular import at module load time
+        from app.agents.budget_agent import BudgetAgent
+        
+        # Create agent instance
+        agent = BudgetAgent()
+        
         logger.info(f"Budget optimization request: {request.jamaah} jamaah, {request.duration} days")
         
-        # Call budget agent
-        result = await budget_agent.analyze_and_recommend(
+        # Call agent
+        result = await agent.analyze_and_recommend(
             jamaah=request.jamaah,
             duration=request.duration,
             budget_max=request.budget_max,
-            preferences=request.preferences
+            preferences=request.preferences or {}
         )
         
-        # Validate result
-        if not result or "packages" not in result:
-            logger.error("Budget agent returned invalid result")
-            raise HTTPException(
-                status_code=500,
-                detail="Budget optimization failed - invalid response from AI"
-            )
+        # Check for errors in result
+        if "error" in result:
+            logger.warning(f"Agent returned error: {result['error']}")
+            raise HTTPException(status_code=400, detail=result["error"])
         
-        logger.info(f"✅ Successfully generated {len(result['packages'])} packages")
+        # Validate packages exist
+        if "packages" not in result or not result["packages"]:
+            logger.error("No packages in result")
+            raise HTTPException(status_code=500, detail="Failed to generate packages")
+        
+        logger.info(f"✅ Generated {len(result['packages'])} packages")
         
         return {
             "status": "success",
@@ -57,40 +98,42 @@ async def optimize_budget(request: BudgetOptimizeRequest):
         }
         
     except HTTPException:
+        # Re-raise HTTP exceptions
         raise
-    except Exception as e:
-        logger.error(f"Budget optimization error: {e}", exc_info=True)
+        
+    except ImportError as e:
+        logger.error(f"Import error: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
+            status_code=500, 
+            detail=f"Budget agent not available: {str(e)}"
+        )
+        
+    except Exception as e:
+        logger.error(f"Budget optimization failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, 
             detail=f"Budget optimization failed: {str(e)}"
         )
 
 
-@router.get("/health")
-async def health_check():
-    """Health check for budget service"""
+@router.get("/knowledge-base")
+async def get_knowledge_base():
+    """
+    Get the knowledge base for budget optimization
+    Uses lazy import
+    """
     try:
-        # Check if Groq API key is configured
-        groq_configured = budget_agent.groq_client is not None
+        # ✅ LAZY IMPORT
+        from app.agents.budget_agent import KNOWLEDGE_BASE
         
         return {
-            "status": "healthy",
-            "service": "budget_optimizer",
-            "groq_api": "configured" if groq_configured else "not_configured",
-            "endpoint": "/api/v1/budget/optimize"
+            "status": "success",
+            "knowledge_base": KNOWLEDGE_BASE
         }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-
-
-@router.get("/test")
-async def test_endpoint():
-    """Test endpoint to verify routing works"""
-    return {
-        "message": "Budget service is reachable!",
-        "endpoint": "/api/v1/budget/test",
-        "status": "ok"
-    }
+        
+    except ImportError as e:
+        logger.error(f"Import error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Knowledge base not available"
+        )
