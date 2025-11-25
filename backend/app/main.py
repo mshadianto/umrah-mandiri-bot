@@ -2,6 +2,7 @@
 """
 Umrah Assistant API
 Main application entry point - Enhanced Version with Budget Optimizer
+FIXED VERSION - Correct budget router import path
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -153,9 +154,9 @@ async def features():
                 "status": "available",
                 "new": True
             },
-            "knowledge_base": {
-                "endpoint": "/api/v1/budget/knowledge-base",
-                "description": "Access hotel and price knowledge base",
+            "budget_health": {
+                "endpoint": "/api/v1/budget/health",
+                "description": "Budget service health check",
                 "status": "available",
                 "new": True
             }
@@ -213,15 +214,17 @@ try:
         failed_routers.append(("advanced", str(e)))
         logger.warning(f"✗ Advanced router not available: {e}")
     
-    # Budget optimizer router (NEW!)
+    # ✅ FIXED: Budget optimizer router - Correct import path!
     try:
-        from app.api.routes.budget_routes import router as budget_router
-        app.include_router(budget_router, tags=["Budget Optimizer"])
+        from app.api.v1.budget_routes import router as budget_router
+        # Router already has prefix="/api/v1/budget" in its definition, so don't add prefix here
+        app.include_router(budget_router)
         loaded_routers.append("budget")
-        logger.info("✓ Budget router loaded")
+        logger.info("✓ Budget router loaded from app.api.v1.budget_routes")
     except ImportError as e:
         failed_routers.append(("budget", str(e)))
         logger.warning(f"✗ Budget router not available: {e}")
+        logger.error(f"   Import error details: {e}", exc_info=True)
     
     # Summary
     logger.info(f"✓ Routers: {len(loaded_routers)} loaded")
@@ -269,8 +272,8 @@ async def startup_event():
     
     if failed_routers:
         logger.info("⚠️  Unavailable Features:")
-        for router_name, _ in failed_routers:
-            logger.info(f"  ✗ {router_name.capitalize()}")
+        for router_name, error in failed_routers:
+            logger.info(f"  ✗ {router_name.capitalize()}: {error}")
         logger.info("")
     
     logger.info("=" * 80)
